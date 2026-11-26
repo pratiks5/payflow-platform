@@ -1,0 +1,53 @@
+spring:
+  cloud:
+    gateway:
+      routes:
+        - id: payment-service
+          uri: http://localhost:8081
+          predicates:
+            - Path=/payment/**
+          filters:
+            - StripPrefix=1
+
+        - id: account-service
+          uri: http://localhost:8082
+          predicates:
+            - Path=/account/**
+          filters:
+            - StripPrefix=1
+
+        - id: ledger-service
+          uri: http://localhost:8083
+          predicates:
+            - Path=/ledger/**
+          filters:
+            - StripPrefix=1
+
+        - id: bank-simulator
+          uri: http://localhost:8084
+          predicates:
+            - Path=/bank/**
+          filters:
+            - StripPrefix=1
+
+        - id: reconciliation-service
+          uri: http://localhost:8085
+          predicates:
+            - Path=/reconciliation/**
+          filters:
+            - StripPrefix=1
+
+springdoc:
+  swagger-ui:
+    enabled: true
+    path: /swagger-ui.html
+    url: /payflow-api-docs
+
+payflow:
+  openapi:
+    services:
+      payment: http://localhost:8081
+      account: http://localhost:8082
+      ledger: http://localhost:8083
+      bank: http://localhost:8084
+      reconciliation: http://localhost:8085
