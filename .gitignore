@@ -1,0 +1,22 @@
+### maven ###
+**/target
+
+### eclipse ###
+**/.project
+**/.settings
+**/.classpath
+
+### IntelliJ IDEA ###
+.idea
+*.iws
+*.iml
+*.ipr
+
+### VS Code ###
+.vscode/
+*.db
+workspace.code-workspace
+*.code-workspace
+*.versionsBackup
+*.vpp.bak*
+*.vpp.lck

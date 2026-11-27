@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PayFlow Console</title>
+<style>
+  :root { --bg:#0f172a; --card:#1e293b; --muted:#94a3b8; --text:#e2e8f0; --accent:#38bdf8; --ok:#22c55e; --bad:#ef4444; --warn:#f59e0b; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui, sans-serif; background:var(--bg); color:var(--text); }
+  header { padding:14px 24px; border-bottom:1px solid #334155; display:flex; justify-content:space-between; align-items:center; }
+  header h1 { margin:0; font-size:20px; }
+  header a { color:var(--accent); margin-left:16px; text-decoration:none; font-size:14px; }
+  main { display:grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap:16px; padding:16px 24px; }
+  section { background:var(--card); border-radius:10px; padding:16px; }
+  section.wide { grid-column: 1 / -1; }
+  h2 { margin:0 0 12px; font-size:16px; color:var(--accent); }
+  form { display:grid; grid-template-columns: 1fr 1fr; gap:8px; }
+  form .full { grid-column: 1 / -1; }
+  label { font-size:12px; color:var(--muted); display:block; margin-bottom:2px; }
+  input, select { width:100%; padding:8px; border-radius:6px; border:1px solid #475569; background:#0f172a; color:var(--text); }
+  button { padding:8px 14px; border:0; border-radius:6px; background:var(--accent); color:#0f172a; font-weight:600; cursor:pointer; }
+  button.secondary { background:#475569; color:var(--text); }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th, td { text-align:left; padding:6px 8px; border-bottom:1px solid #334155; }
+  th { color:var(--muted); font-weight:500; }
+  .badge { padding:2px 8px; border-radius:10px; font-size:11px; font-weight:700; }
+  .COMPLETED { background:var(--ok); color:#052e16; }
+  .FAILED { background:var(--bad); color:#fff; }
+  .PENDING { background:var(--warn); color:#451a03; }
+  #toast { position:fixed; bottom:20px; right:20px; padding:12px 16px; border-radius:8px; display:none; max-width:420px; font-size:14px; }
+  .mono { font-family: ui-monospace, monospace; font-size:12px; }
+  .row { display:flex; gap:8px; align-items:center; margin-bottom:10px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>PayFlow Console <span style="color:var(--muted);font-size:13px">Milestone 1</span></h1>
+  <nav>
+    <span id="health" class="mono"></span>
+    <a href="/swagger-ui.html" target="_blank">Swagger</a>
+  </nav>
+</header>
+<main>
+  <section>
+    <h2>1. Create customer account</h2>
+    <form id="accountForm">
+      <div><label>Account ID</label><input name="accountId" placeholder="ACC001" required></div>
+      <div><label>Owner name</label><input name="ownerName" placeholder="Alice" required></div>
+      <div><label>Opening balance</label><input name="openingBalance" type="number" step="0.01" min="0" value="10000" required></div>
+      <div><label>Currency</label><input name="currency" value="INR" maxlength="3" required></div>
+      <div class="full"><button>Create account</button>
+        <button type="button" class="secondary" id="seed">Seed demo accounts</button></div>
+    </form>
+  </section>
+
+  <section>
+    <h2>2. Transfer money</h2>
+    <form id="paymentForm">
+      <div><label>From</label><select name="fromAccount" class="accountSelect" required></select></div>
+      <div><label>To</label><select name="toAccount" class="accountSelect" required></select></div>
+      <div><label>Amount</label><input name="amount" type="number" step="0.01" min="0.01" value="500" required></div>
+      <div><label>Currency</label><input name="currency" value="INR" maxlength="3" required></div>
+      <div class="full"><label>Idempotency-Key (not enforced until Milestone 3)</label>
+        <input name="key" id="idemKey" class="mono"></div>
+      <div class="full"><button>Send payment</button></div>
+    </form>
+  </section>
+
+  <section>
+    <div class="row"><h2 style="margin:0">Accounts &amp; balances</h2><button class="secondary" onclick="refresh()">Refresh</button></div>
+    <table><thead><tr><th>ID</th><th>Owner</th><th>Available</th><th>Reserved</th><th>Cur</th></tr></thead>
+      <tbody id="accounts"></tbody></table>
+  </section>
+
+  <section>
+    <h2>Payments</h2>
+    <table><thead><tr><th>Payment</th><th>From → To</th><th>Amount</th><th>Status</th></tr></thead>
+      <tbody id="payments"></tbody></table>
+  </section>
+
+  <section class="wide">
+    <div class="row"><h2 style="margin:0">Ledger entries (double-entry)</h2>
+      <select id="ledgerFilter" style="width:auto"><option value="">All (latest 100)</option></select></div>
+    <table><thead><tr><th>Time</th><th>Journal</th><th>Account</th><th>Debit</th><th>Credit</th></tr></thead>
+      <tbody id="ledger"></tbody></table>
+  </section>
+</main>
+<div id="toast"></div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const newKey = () => 'transfer-' + Math.random().toString(36).slice(2, 10);
+$('#idemKey').value = newKey();
+
+function toast(msg, ok = true) {
+  const t = $('#toast');
+  t.textContent = msg;
+  t.style.background = ok ? '#166534' : '#991b1b';
+  t.style.display = 'block';
+  setTimeout(() => t.style.display = 'none', 4000);
+}
+
+async function api(path, options = {}) {
+  const res = await fetch(path, { headers: { 'Content-Type': 'application/json' }, ...options });
+  const text = await res.text();
+  let body = null;
+  try { body = text ? JSON.parse(text) : null; } catch { body = { detail: text }; }
+  return { ok: res.ok, status: res.status, body };
+}
+
+const esc = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const money = (v) => Number(v).toLocaleString(undefined, { minimumFractionDigits: 2 });
+
+async function createAccount(data) {
+  const r = await api('/account/api/accounts', { method: 'POST', body: JSON.stringify(data) });
+  if (!r.ok) throw new Error(r.body?.detail || r.body?.message || 'HTTP ' + r.status);
+}
+
+$('#accountForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const f = Object.fromEntries(new FormData(e.target));
+  f.openingBalance = Number(f.openingBalance);
+  try { await createAccount(f); toast('Account ' + f.accountId + ' created'); e.target.reset(); await refresh(); }
+  catch (err) { toast(err.message, false); }
+});
+
+$('#seed').addEventListener('click', async () => {
+  const demo = [['ACC001','Alice',20000],['ACC002','Bob',10000],['ACC003','Carol',5000]];
+  for (const [accountId, ownerName, openingBalance] of demo) {
+    try { await createAccount({ accountId, ownerName, openingBalance, currency: 'INR' }); } catch {}
+  }
+  toast('Demo accounts seeded'); refresh();
+});
+
+$('#paymentForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const f = Object.fromEntries(new FormData(e.target));
+  const key = f.key; delete f.key;
+  f.amount = Number(f.amount);
+  const r = await api('/payment/api/payments', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': key }, body: JSON.stringify(f) });
+  if (r.ok) toast('Payment COMPLETED');
+  else toast(r.body?.failureReason || r.body?.detail || r.body?.message || 'HTTP ' + r.status, false);
+  $('#idemKey').value = newKey();
+  refresh();
+});
+
+$('#ledgerFilter').addEventListener('change', loadLedger);
+
+async function loadAccounts() {
+  const r = await api('/account/api/accounts');
+  const list = r.ok ? r.body : [];
+  $('#accounts').innerHTML = list.map(a => `<tr><td>${esc(a.accountId)}</td><td>${esc(a.ownerName)}</td>
+    <td>${money(a.availableBalance)}</td><td>${money(a.reservedBalance)}</td><td>${esc(a.currency)}</td></tr>`).join('')
+    || '<tr><td colspan="5">No accounts yet</td></tr>';
+  const options = list.map(a => `<option value="${esc(a.accountId)}">${esc(a.accountId)} (${esc(a.ownerName)})</option>`).join('');
+  document.querySelectorAll('.accountSelect').forEach((s, i) => {
+    const prev = s.value; s.innerHTML = options;
+    s.value = prev || (list[i]?.accountId ?? '');
+  });
+  const filter = $('#ledgerFilter'), cur = filter.value;
+  filter.innerHTML = '<option value="">All (latest 100)</option>' + list.map(a => `<option>${esc(a.accountId)}</option>`).join('');
+  filter.value = cur;
+}
+
+async function loadPayments() {
+  const r = await api('/payment/api/payments');
+  $('#payments').innerHTML = (r.ok ? r.body : []).map(p => `<tr>
+    <td class="mono" title="${esc(p.paymentId)}">${esc(p.paymentId.slice(0, 8))}</td>
+    <td>${esc(p.fromAccount)} → ${esc(p.toAccount)}</td><td>${money(p.amount)} ${esc(p.currency)}</td>
+    <td><span class="badge ${esc(p.status)}">${esc(p.status)}</span>${p.failureReason ? `<div style="color:var(--muted);font-size:11px">${esc(p.failureReason)}</div>` : ''}</td></tr>`).join('')
+    || '<tr><td colspan="4">No payments yet</td></tr>';
+}
+
+async function loadLedger() {
+  const id = $('#ledgerFilter').value;
+  const r = await api('/ledger/api/ledger/entries' + (id ? '?accountId=' + encodeURIComponent(id) : ''));
+  $('#ledger').innerHTML = (r.ok ? r.body : []).map(e => `<tr><td>${esc(new Date(e.createdAt).toLocaleString())}</td>
+    <td class="mono">${esc(e.journalId.slice(0, 8))}</td><td>${esc(e.accountId)}</td>
+    <td>${Number(e.debit) ? money(e.debit) : ''}</td><td>${Number(e.credit) ? money(e.credit) : ''}</td></tr>`).join('')
+    || '<tr><td colspan="5">No ledger entries yet</td></tr>';
+}
+
+async function checkHealth() {
+  const svc = { payment: '/payment/api/payments', account: '/account/api/accounts', ledger: '/ledger/api/ledger/journals' };
+  const parts = [];
+  for (const [name, url] of Object.entries(svc)) {
+    const ok = await fetch(url).then(r => r.ok).catch(() => false);
+    parts.push(`<span style="color:${ok ? 'var(--ok)' : 'var(--bad)'}">● ${name}</span>`);
+  }
+  $('#health').innerHTML = parts.join(' &nbsp; ');
+}
+
+async function refresh() { await loadAccounts(); await Promise.all([loadPayments(), loadLedger(), checkHealth()]); }
+refresh();
+</script>
+</body>
+</html>

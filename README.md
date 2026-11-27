@@ -44,6 +44,14 @@ mvn -pl reconciliation-service spring-boot:run
 mvn -pl payment-service spring-boot:run
 ```
 
+## UI
+
+Start all five services (including `swagger-gateway`, port 8080), then open **http://localhost:8080/** — a console to create accounts, transfer money, and view balances, payments and ledger entries. Swagger is at http://localhost:8080/swagger-ui.html.
+
+```bash
+mvn -pl swagger-gateway spring-boot:run
+```
+
 ## First API call
 
 Create an account:

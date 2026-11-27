@@ -1,6 +1,7 @@
 package com.payflow.accountservice;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.Map;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.*;
@@ -11,8 +12,39 @@ import org.springframework.web.server.ResponseStatusException;
 @RestController
 @RequestMapping("/api/accounts")
 public class AccountController {
+
     private final AccountRepository repository;
-    public AccountController(AccountRepository repository) { this.repository = repository; }
+    private final TransferService transferService;
+
+    public AccountController(AccountRepository repository, TransferService transferService) {
+        this.repository = repository;
+        this.transferService = transferService;
+    }
+
+    @GetMapping
+    public List<Map<String, Object>> list() {
+        return repository.findAll().stream().map(AccountController::view).toList();
+    }
+
+    @PostMapping("/transfer")
+    public Map<String, String> transfer(@Valid @RequestBody TransferRequest request) {
+        transferService.transfer(request.paymentId(), request.fromAccount(), request.toAccount(),
+            request.amount(), request.currency());
+        return Map.of("status", "TRANSFERRED");
+    }
+
+    private static Map<String, Object> view(Account a) {
+        return Map.of("accountId", a.getAccountId(), "ownerName", a.getOwnerName(),
+            "availableBalance", a.getAvailableBalance(),
+            "reservedBalance", a.getReservedBalance(), "currency", a.getCurrency());
+    }
+
+    public record TransferRequest(
+        @NotBlank String paymentId,
+        @NotBlank String fromAccount,
+        @NotBlank String toAccount,
+        @NotNull @DecimalMin("0.01") BigDecimal amount,
+        @NotBlank @Size(min = 3, max = 3) String currency) {}
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
